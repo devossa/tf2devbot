@@ -17,8 +17,8 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 
-import DiscordBot from './DiscordBot';
-import { Message as DiscordMessage } from 'discord.js';
+// import DiscordBot from './DiscordBot';
+// import { Message as DiscordMessage } from 'discord.js';
 
 import InventoryManager from './InventoryManager';
 import Pricelist, { Entry, EntryData, PricesDataObject } from './Pricelist';
@@ -71,7 +71,7 @@ export default class Bot {
 
     readonly handler: MyHandler;
 
-    discordBot: DiscordBot; // should be readonly?
+    // discordBot: DiscordBot; // should be readonly?
 
     inventoryManager: InventoryManager; // should be readonly
 
@@ -341,7 +341,7 @@ export default class Bot {
         this.client.setPersona(EPersonaState.Snooze);
 
         log.debug('Settings status in Discord to "idle"');
-        this.discordBot.halt();
+        // this.discordBot.halt();
 
         // disable auto-check for missing/mismatching listings
         clearInterval(this.autoRefreshListingsInterval);
@@ -369,7 +369,7 @@ export default class Bot {
         this.client.setPersona(EPersonaState.Online);
 
         log.debug('Settings status in Discord to "online"');
-        this.discordBot.unhalt();
+        // this.discordBot.unhalt();
 
         // Re-initialize auto-check for missing/mismatching listings
         this.startAutoRefreshListings();
@@ -829,20 +829,20 @@ export default class Bot {
                 cookies = await this.getWebSession();
                 this.bptf.setCookies(cookies);
             },
-            async () => {
-                if (this.options.discordBotToken) {
-                    log.info(`Initializing Discord bot...`);
-                    this.discordBot = new DiscordBot(this.options, this);
-                    try {
-                        await this.discordBot.start();
-                    } catch (err) {
-                        log.warn('Failed to start Discord bot: ', err);
-                        throw err;
-                    }
-                } else {
-                    log.info('Discord api key is not set, ignoring.');
-                }
-            },
+            // async () => {
+            //     if (this.options.discordBotToken) {
+            //         log.info(`Initializing Discord bot...`);
+            //         this.discordBot = new DiscordBot(this.options, this);
+            //         try {
+            //             await this.discordBot.start();
+            //         } catch (err) {
+            //             log.warn('Failed to start Discord bot: ', err);
+            //             throw err;
+            //         }
+            //     } else {
+            //         log.info('Discord api key is not set, ignoring.');
+            //     }
+            // },
             async () => {
                 if (this.options.bptfApiKey && this.options.bptfAccessToken) return;
 
@@ -1051,9 +1051,9 @@ export default class Bot {
 
                                 this.tradeOfferUrl = url;
 
-                                if (this.options.discordBotToken) {
-                                    this.discordBot.setPresence('online');
-                                }
+                                // if (this.options.discordBotToken) {
+                                //     this.discordBot.setPresence('online');
+                                // }
 
                                 this.manager.pollInterval = 5 * 1000;
                                 this.setReady = true;
@@ -1306,15 +1306,15 @@ export default class Bot {
     }
 
     sendMessage(steamID: SteamID | string, message: string): void {
-        if (steamID instanceof SteamID && steamID.redirectAnswerTo) {
-            const origMessage = steamID.redirectAnswerTo;
-            if (origMessage instanceof DiscordMessage) {
-                this.discordBot.sendAnswer(origMessage, message);
-            } else {
-                log.error(`Failed to send message, broken redirect:`, origMessage);
-            }
-            return;
-        }
+        // if (steamID instanceof SteamID && steamID.redirectAnswerTo) {
+        //     const origMessage = steamID.redirectAnswerTo;
+        //     if (origMessage instanceof DiscordMessage) {
+        //         // this.discordBot.sendAnswer(origMessage, message);
+        //     } else {
+        //         log.error(`Failed to send message, broken redirect:`, origMessage);
+        //     }
+        //     return;
+        // }
 
         const steamID64 = steamID.toString();
         const friend = this.friends.getFriend(steamID64);
