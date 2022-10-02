@@ -182,7 +182,7 @@ export default class Bot {
 
         this.options.admins.forEach(adminData => {
             const admin = new SteamID(adminData.steam);
-            admin.discordID = adminData.discord;
+            // admin.discordID = adminData.discord;
 
             if (!admin.isValid()) {
                 throw new Error('Invalid admin steamID');
