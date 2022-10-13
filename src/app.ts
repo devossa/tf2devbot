@@ -84,7 +84,7 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin) => {
         }
 
         const errorMessage = [
-            'TF2Devbot' +
+            'TF2Autobot' +
                 (!botReady
                     ? ' failed to start properly, this is most likely a temporary error. See the log:'
                     : ' crashed! Please create an issue with the following log:'),
