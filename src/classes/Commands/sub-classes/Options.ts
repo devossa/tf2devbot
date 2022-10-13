@@ -894,17 +894,17 @@ export default class OptionsCommands {
                     this.bot.handler.autokeys.check();
                 }
 
-                // if (knownParams.discordChat?.online !== undefined) {
-                //     if (this.bot.options.discordBotToken && !this.bot.isHalted) {
-                //         this.bot.discordBot.setPresence('online');
-                //     }
-                // }
+                if (knownParams.discordChat?.online !== undefined) {
+                    if (this.bot.options.discordBotToken && !this.bot.isHalted) {
+                        this.bot.discordBot.setPresence('online');
+                    }
+                }
 
-                // if (knownParams.discordChat?.halt !== undefined) {
-                //     if (this.bot.options.discordBotToken && this.bot.isHalted) {
-                //         this.bot.discordBot.setPresence('halt');
-                //     }
-                // }
+                if (knownParams.discordChat?.halt !== undefined) {
+                    if (this.bot.options.discordBotToken && this.bot.isHalted) {
+                        this.bot.discordBot.setPresence('halt');
+                    }
+                }
 
                 if (knownParams.details?.showAutokeys) {
                     this.bot.listings.checkByPriceKey({ priceKey: '5021;6' });
