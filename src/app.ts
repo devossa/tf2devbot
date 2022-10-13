@@ -33,166 +33,155 @@ const paths = genPaths(options.steamAccountName);
 import log, { init } from './lib/logger';
 init(paths, options);
 
-// if (process.env.pm_id === undefined && process.env.DOCKER === undefined) {
-//     log.warn(
-//         "You are not running the bot with PM2! If the bot crashes it won't start again." +
-//             ' Get a VPS and run your bot with PM2: https://github.com/TF2Autobot/tf2autobot/wiki/Getting-a-VPS'
-//     );
-// }
+if (process.env.pm_id === undefined && process.env.DOCKER === undefined) {
+    log.warn(
+        "You are not running the bot with PM2! If the bot crashes it won't start again." +
+            ' Get a VPS and run your bot with PM2: https://github.com/TF2Autobot/tf2autobot/wiki/Getting-a-VPS'
+    );
+}
 
-// if (process.env.DOCKER !== undefined) {
-//     log.warn(
-//         'You are running the bot with Docker! If the bot crashes, it will start again only if you run the container with --restart=always'
-//     );
-// }
+if (process.env.DOCKER !== undefined) {
+    log.warn(
+        'You are running the bot with Docker! If the bot crashes, it will start again only if you run the container with --restart=always'
+    );
+}
 
-const pricer = getPricer({
-    pricerUrl: options.customPricerUrl,
-    pricerApiToken: options.customPricerApiToken
+import BotManager from './classes/BotManager';
+const botManager = new BotManager(
+    getPricer({
+        pricerUrl: options.customPricerUrl,
+        pricerApiToken: options.customPricerApiToken
+    })
+);
+
+import ON_DEATH from 'death';
+import * as inspect from 'util';
+import { Webhook } from './lib/DiscordWebhook/interfaces';
+import axios, { AxiosError } from 'axios';
+import { uptime } from './lib/tools/time';
+import filterAxiosError from '@tf2autobot/filter-axios-error';
+
+ON_DEATH({ uncaughtException: true })((signalOrErr, origin) => {
+    const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
+
+    if (crashed) {
+        const botReady = botManager.isBotReady;
+
+        const stackTrace = inspect.inspect(origin);
+
+        if (stackTrace.includes('Error: Not allowed')) {
+            log.error('Not Allowed');
+            return botManager.stop(null, true, true);
+        }
+
+        const errorMessage = [
+            'TF2Autobot' +
+                (!botReady
+                    ? ' failed to start properly, this is most likely a temporary error. See the log:'
+                    : ' crashed! Please create an issue with the following log:'),
+            `package.version: ${process.env.BOT_VERSION || undefined}; node: ${process.version} ${process.platform} ${
+                process.arch
+            }}`,
+            'Stack trace:',
+            stackTrace,
+            `${uptime()}`
+        ].join('\r\n');
+
+        log.error(errorMessage);
+
+        if (options.discordWebhook.sendAlert.enable && options.discordWebhook.sendAlert.url.main !== '') {
+            const optDW = options.discordWebhook;
+            const sendAlertWebhook: Webhook = {
+                username: optDW.displayName ? optDW.displayName : 'Your beloved bot',
+                avatar_url: optDW.avatarURL ? optDW.avatarURL : '',
+                content:
+                    optDW.sendAlert.isMention && optDW.ownerID.length > 0
+                        ? optDW.ownerID.map(id => `<@!${id}>`).join(', ')
+                        : '',
+                embeds: [
+                    {
+                        title: 'Bot crashed!',
+                        description: errorMessage,
+                        color: '16711680',
+                        footer: {
+                            text: `${String(new Date(Date.now()))} • v${process.env.BOT_VERSION}`
+                        }
+                    }
+                ]
+            };
+
+            void axios({
+                method: 'POST',
+                url: optDW.sendAlert.url.main,
+                data: sendAlertWebhook // axios should automatically set Content-Type header to application/json
+            }).catch((err: AxiosError) => {
+                log.error('Error sending webhook on crash', filterAxiosError(err));
+            });
+        }
+
+        if (botReady) {
+            log.error(
+                'Refer to Wiki here: https://github.com/TF2Autobot/tf2autobot/wiki/Common-Errors OR ' +
+                    'Create an issue here: https://github.com/idinium96/TF2Autobot/issues/new?assignees=&labels=bug&template=bug_report.md&title='
+            );
+        }
+    } else {
+        log.warn('Received kill signal `' + (signalOrErr as string) + '`');
+    }
+
+    botManager.stop(crashed ? (signalOrErr as Error) : null, true, false);
 });
-(async () => {
-    const res = await pricer.getPrice('239;6')
-    console.log(res)
-})()
 
-// import BotManager from './classes/BotManager';
-// const botManager = new BotManager(
-//     getPricer({
-//         pricerUrl: options.customPricerUrl,
-//         pricerApiToken: options.customPricerApiToken
-//     })
-// );
+process.on('message', message => {
+    if (message === 'shutdown') {
+        log.warn('Process received shutdown message, stopping...');
 
-// import ON_DEATH from 'death';
-// import * as inspect from 'util';
-// import { Webhook } from './lib/DiscordWebhook/interfaces';
-// import axios, { AxiosError } from 'axios';
-// import { uptime } from './lib/tools/time';
-// import filterAxiosError from '@tf2autobot/filter-axios-error';
+        botManager.stop(null, true, false);
+    } else {
+        log.warn('Process received unknown message `' + (message as string) + '`');
+    }
+});
 
-// ON_DEATH({ uncaughtException: true })((signalOrErr, origin) => {
-//     const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
+botManager
+    .start(options)
+    .then(async () => {
+        if (options.enableHttpApi) {
+            const { default: HttpManager } = await import('./classes/HttpManager');
+            const httpManager = new HttpManager(options);
+            await httpManager.start();
+        }
+    })
+    .catch(err => {
+        if (err) {
+            // https://stackoverflow.com/questions/30715367/why-can-i-not-throw-inside-a-promise-catch-handler
+            setTimeout(() => {
+                /*eslint-disable */
+                if (err.response || err.name === 'AxiosError') {
+                    // if it's Axios error, filter the error
 
-//     if (crashed) {
-//         const botReady = botManager.isBotReady;
+                    const e = new Error(err.message);
 
-//         const stackTrace = inspect.inspect(origin);
+                    e['code'] = err.code;
+                    e['status'] = err.response?.status ?? err.status;
+                    e['method'] = err.config?.method ?? err.method;
+                    e['url'] = err.config?.url?.replace(/\?.+/, '') ?? err.baseURL?.replace(/\?.+/, ''); //Ignore parameters
 
-//         if (stackTrace.includes('Error: Not allowed')) {
-//             log.error('Not Allowed');
-//             return botManager.stop(null, true, true);
-//         }
+                    if (typeof err.response?.data === 'string' && err.response?.data?.includes('<html>')) {
+                        return throwErr(e);
+                    }
 
-//         const errorMessage = [
-//             'TF2Autobot' +
-//                 (!botReady
-//                     ? ' failed to start properly, this is most likely a temporary error. See the log:'
-//                     : ' crashed! Please create an issue with the following log:'),
-//             `package.version: ${process.env.BOT_VERSION || undefined}; node: ${process.version} ${process.platform} ${
-//                 process.arch
-//             }}`,
-//             'Stack trace:',
-//             stackTrace,
-//             `${uptime()}`
-//         ].join('\r\n');
+                    e['data'] = err.response?.data;
 
-//         log.error(errorMessage);
+                    return throwErr(e);
+                }
+                /*eslint-enable */
 
-//         if (options.discordWebhook.sendAlert.enable && options.discordWebhook.sendAlert.url.main !== '') {
-//             const optDW = options.discordWebhook;
-//             const sendAlertWebhook: Webhook = {
-//                 username: optDW.displayName ? optDW.displayName : 'Your beloved bot',
-//                 avatar_url: optDW.avatarURL ? optDW.avatarURL : '',
-//                 content:
-//                     optDW.sendAlert.isMention && optDW.ownerID.length > 0
-//                         ? optDW.ownerID.map(id => `<@!${id}>`).join(', ')
-//                         : '',
-//                 embeds: [
-//                     {
-//                         title: 'Bot crashed!',
-//                         description: errorMessage,
-//                         color: '16711680',
-//                         footer: {
-//                             text: `${String(new Date(Date.now()))} • v${process.env.BOT_VERSION}`
-//                         }
-//                     }
-//                 ]
-//             };
+                return throwErr(err);
+            }, 10);
+        }
+    });
 
-//             void axios({
-//                 method: 'POST',
-//                 url: optDW.sendAlert.url.main,
-//                 data: sendAlertWebhook // axios should automatically set Content-Type header to application/json
-//             }).catch((err: AxiosError) => {
-//                 log.error('Error sending webhook on crash', filterAxiosError(err));
-//             });
-//         }
-
-//         if (botReady) {
-//             log.error(
-//                 'Refer to Wiki here: https://github.com/TF2Autobot/tf2autobot/wiki/Common-Errors OR ' +
-//                     'Create an issue here: https://github.com/idinium96/TF2Autobot/issues/new?assignees=&labels=bug&template=bug_report.md&title='
-//             );
-//         }
-//     } else {
-//         log.warn('Received kill signal `' + (signalOrErr as string) + '`');
-//     }
-
-//     botManager.stop(crashed ? (signalOrErr as Error) : null, true, false);
-// });
-
-// process.on('message', message => {
-//     if (message === 'shutdown') {
-//         log.warn('Process received shutdown message, stopping...');
-
-//         botManager.stop(null, true, false);
-//     } else {
-//         log.warn('Process received unknown message `' + (message as string) + '`');
-//     }
-// });
-
-// botManager
-//     .start(options)
-//     .then(async () => {
-//         if (options.enableHttpApi) {
-//             const { default: HttpManager } = await import('./classes/HttpManager');
-//             const httpManager = new HttpManager(options);
-//             await httpManager.start();
-//         }
-//     })
-//     .catch(err => {
-//         if (err) {
-//             // https://stackoverflow.com/questions/30715367/why-can-i-not-throw-inside-a-promise-catch-handler
-//             setTimeout(() => {
-//                 /*eslint-disable */
-//                 if (err.response || err.name === 'AxiosError') {
-//                     // if it's Axios error, filter the error
-
-//                     const e = new Error(err.message);
-
-//                     e['code'] = err.code;
-//                     e['status'] = err.response?.status ?? err.status;
-//                     e['method'] = err.config?.method ?? err.method;
-//                     e['url'] = err.config?.url?.replace(/\?.+/, '') ?? err.baseURL?.replace(/\?.+/, ''); // Ignore parameters
-
-//                     if (typeof err.response?.data === 'string' && err.response?.data?.includes('<html>')) {
-//                         return throwErr(e);
-//                     }
-
-//                     e['data'] = err.response?.data;
-
-//                     return throwErr(e);
-//                 }
-//                 /*eslint-enable */
-
-//                 return throwErr(err);
-//             }, 10);
-//         }
-//     });
-
-// console.log(options)
-
-// function throwErr(err): void {
-//     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-//     process.emit('uncaughtException', err);
-// }
+function throwErr(err): void {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    process.emit('uncaughtException', err);
+}
